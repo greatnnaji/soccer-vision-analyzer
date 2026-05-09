@@ -3,12 +3,26 @@ from pathlib import Path
 import cv2
 import streamlit as st
 from ultralytics import YOLO
+from moviepy import VideoFileClip
 
 
 BASE_OUTPUT_DIR = Path("outputs")
 UPLOADED_VIDEO_DIR = BASE_OUTPUT_DIR / "uploaded_videos"
 PROCESSED_VIDEO_DIR = BASE_OUTPUT_DIR / "processed_videos"
 
+
+def convert_to_browser_mp4(input_path: Path) -> Path:
+    browser_output_path = input_path.with_name(f"{input_path.stem}_browser.mp4")
+
+    clip = VideoFileClip(str(input_path))
+    clip.write_videofile(
+        str(browser_output_path),
+        codec="libx264",
+        audio=False
+    )
+    clip.close()
+
+    return browser_output_path
 
 def save_uploaded_video(uploaded_file: st.runtime.uploaded_file_manager.UploadedFile) -> Path:
     UPLOADED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
@@ -132,8 +146,8 @@ def process_video(video_path: Path, model: YOLO | None = None) -> Path:
 
     st.write(f"Processed file size: {output_path.stat().st_size} bytes")
 
-    return output_path
-
+    browser_video_path = convert_to_browser_mp4(output_path)
+    return browser_video_path
 
 st.set_page_config(page_title="SoccerVision", layout="wide")
 
