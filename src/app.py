@@ -1,3 +1,19 @@
+"""
+SoccerVision: AI-powered soccer clip analyzer using YOLO and OpenCV.
+
+This application processes soccer video clips to detect players and the ball,
+drawing bounding boxes and collecting detection statistics for analysis.
+
+Pipeline stages:
+1. Upload video file via Streamlit UI
+2. Save video locally
+3. Extract video metadata
+4. Load YOLO model for object detection
+5. Process video frame-by-frame, detecting players and balls
+6. Create annotated output video with detection overlays
+7. Display statistics dashboard with detection metrics
+"""
+
 from pathlib import Path
 
 import cv2
@@ -12,6 +28,14 @@ PROCESSED_VIDEO_DIR = BASE_OUTPUT_DIR / "processed_videos"
 
 
 def convert_to_browser_mp4(input_path: Path) -> Path:
+    """Convert video to H.264 codec for better browser compatibility.
+    
+    Args:
+        input_path: Path to input video file
+        
+    Returns:
+        Path to the converted browser-safe video file
+    """
     browser_output_path = input_path.with_name(f"{input_path.stem}_browser.mp4")
 
     clip = VideoFileClip(str(input_path))
@@ -25,6 +49,14 @@ def convert_to_browser_mp4(input_path: Path) -> Path:
     return browser_output_path
 
 def save_uploaded_video(uploaded_file: st.runtime.uploaded_file_manager.UploadedFile) -> Path:
+    """Save uploaded video file to local disk.
+    
+    Args:
+        uploaded_file: Streamlit UploadedFile object
+        
+    Returns:
+        Path to the saved video file
+    """
     UPLOADED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     uploaded_path = UPLOADED_VIDEO_DIR / uploaded_file.name
 
@@ -35,6 +67,14 @@ def save_uploaded_video(uploaded_file: st.runtime.uploaded_file_manager.Uploaded
 
 
 def get_video_metadata(video_path: Path) -> dict[str, float | int]:
+    """Extract video metadata using OpenCV.
+    
+    Args:
+        video_path: Path to video file
+        
+    Returns:
+        Dictionary with fps, width, height, and frame_count
+    """
     capture = cv2.VideoCapture(str(video_path))
 
     if not capture.isOpened():
@@ -52,10 +92,24 @@ def get_video_metadata(video_path: Path) -> dict[str, float | int]:
 
 
 def process_video(video_path: Path, model: YOLO | None = None) -> tuple[Path, dict]:
-    """Process video and collect detection statistics.
+    """Process video frame-by-frame, run YOLO detection, and collect statistics.
     
-    Returns: (processed_video_path, stats_dict) where stats_dict contains
-    counts and average confidence for each class detected.
+    This function:
+    1. Opens the video file with OpenCV
+    2. Iterates through each frame
+    3. Runs YOLO detection (if model provided) to find players and balls
+    4. Draws bounding boxes and labels on each frame
+    5. Writes the annotated frames to output video
+    6. Tracks and aggregates detection statistics
+    
+    Args:
+        video_path: Path to input video file
+        model: Pre-loaded YOLO model or None
+        
+    Returns:
+        Tuple of (processed_video_path, statistics_dict):
+        - processed_video_path: Path to output annotated video
+        - statistics_dict: Contains player count, ball count, and average confidences
     """
     PROCESSED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -184,65 +238,110 @@ def process_video(video_path: Path, model: YOLO | None = None) -> tuple[Path, di
 
 st.set_page_config(page_title="SoccerVision", layout="wide")
 
-st.title("SoccerVision")
-st.write("AI-powered soccer clip analyzer using YOLO and OpenCV.")
+st.title("⚽ SoccerVision")
+st.markdown("### AI-powered soccer clip analyzer using YOLO and OpenCV")
+st.write(
+    "Upload a soccer video clip to automatically detect players and the ball. "
+    "This app uses the YOLOv8 object detection model to analyze each frame."
+)
 
 uploaded_file = st.file_uploader("Upload a soccer clip", type=["mp4", "mov", "avi"])
 
 if uploaded_file is not None:
-    st.success("Video uploaded successfully.")
-
+    st.success("✅ Video uploaded successfully!")
+    
+    st.divider()
+    st.subheader("📊 Processing Video...")
+    
+    # Step 1: Save uploaded video
     local_video_path = save_uploaded_video(uploaded_file)
+    
+    # Step 2: Extract metadata
     video_metadata = get_video_metadata(local_video_path)
-
-    # Load YOLO model (this may download weights the first time)
-    with st.spinner("Loading YOLO model..."):
+    st.info(f"Video loaded: {video_metadata['frame_count']} frames @ {video_metadata['fps']:.1f} fps")
+    
+    # Step 3: Load YOLO model
+    with st.spinner("🔄 Loading YOLO model..."):
         try:
             model = YOLO("yolov8n.pt")
         except Exception:
             model = None
-
-    processed_video_path, detection_stats = process_video(local_video_path, model)
-
+            st.warning("Could not load YOLO model. Proceeding without detections.")
+    
+    # Step 4: Process video with detections
+    with st.spinner("🎬 Processing frames and detecting objects..."):
+        processed_video_path, detection_stats = process_video(local_video_path, model)
+    
+    st.success("✅ Processing complete!")
+    st.divider()
+    
+    # Display results in two columns
     left_column, right_column = st.columns(2)
 
     with left_column:
-        st.subheader("Uploaded Video")
+        st.subheader("📹 Uploaded Video")
         st.video(str(local_video_path))
+        
+        st.subheader("📋 Video Metadata")
+        metadata_display = {
+            "Resolution": f"{int(video_metadata['width'])}x{int(video_metadata['height'])}",
+            "Frame Count": int(video_metadata['frame_count']),
+            "FPS": f"{video_metadata['fps']:.2f}",
+        }
+        for key, value in metadata_display.items():
+            st.metric(key, value)
 
     with right_column:
-        st.subheader("Video Metadata")
-        st.json(video_metadata)
-
-        st.subheader("YOLO Detection Output")
+        st.subheader("🤖 YOLO Detection Output")
         st.video(str(processed_video_path))
 
-    st.caption(f"Saved upload to {local_video_path} and processed output to {processed_video_path}.")
-
+    st.divider()
+    
     # Display detection statistics dashboard
-    st.subheader("Detection Summary")
+    st.subheader("📊 Detection Summary")
     stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
 
     with stat_col1:
-        st.metric("Total Players Detected", detection_stats["player_count"])
+        st.metric("👥 Total Players", detection_stats["player_count"])
 
     with stat_col2:
-        st.metric("Total Balls Detected", detection_stats["ball_count"])
+        st.metric("⚽ Total Balls", detection_stats["ball_count"])
 
     with stat_col3:
         avg_player_conf = detection_stats["player_avg_confidence"]
-        st.metric("Avg Player Confidence", f"{avg_player_conf:.3f}")
+        st.metric("Player Confidence", f"{avg_player_conf:.3f}")
 
     with stat_col4:
         avg_ball_conf = detection_stats["ball_avg_confidence"]
-        st.metric("Avg Ball Confidence", f"{avg_ball_conf:.3f}")
+        st.metric("Ball Confidence", f"{avg_ball_conf:.3f}")
 
     # Display detailed stats
-    st.subheader("Detailed Statistics")
+    st.subheader("📈 Detailed Statistics")
     details = {
-        "Players Detected": detection_stats["player_count"],
-        "Balls Detected": detection_stats["ball_count"],
-        "Avg Player Confidence": f"{detection_stats['player_avg_confidence']:.4f}",
-        "Avg Ball Confidence": f"{detection_stats['ball_avg_confidence']:.4f}",
+        "Total Players Detected": detection_stats["player_count"],
+        "Total Balls Detected": detection_stats["ball_count"],
+        "Average Player Confidence": f"{detection_stats['player_avg_confidence']:.4f}",
+        "Average Ball Confidence": f"{detection_stats['ball_avg_confidence']:.4f}",
     }
-    st.json(details)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Detection Counts**")
+        st.json({
+            "Players": detection_stats["player_count"],
+            "Balls": detection_stats["ball_count"],
+        })
+    
+    with col2:
+        st.write("**Confidence Scores**")
+        st.json({
+            "Avg Player Confidence": f"{detection_stats['player_avg_confidence']:.4f}",
+            "Avg Ball Confidence": f"{detection_stats['ball_avg_confidence']:.4f}",
+        })
+
+    st.divider()
+    st.caption(
+        "💾 Files saved: "
+        f"uploaded to `{local_video_path}` | "
+        f"output to `{processed_video_path}`"
+    )
