@@ -181,7 +181,7 @@ if uploaded_file is not None:
         st.subheader("Video Metadata")
         st.json(video_metadata)
 
-        st.subheader("Processed Video")
+        st.subheader("YOLO Detection Output")
         st.video(str(processed_video_path))
 
     st.caption(f"Saved upload to {local_video_path} and processed output to {processed_video_path}.")
