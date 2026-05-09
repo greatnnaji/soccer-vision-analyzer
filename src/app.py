@@ -51,7 +51,12 @@ def get_video_metadata(video_path: Path) -> dict[str, float | int]:
     return metadata
 
 
-def process_video(video_path: Path, model: YOLO | None = None) -> Path:
+def process_video(video_path: Path, model: YOLO | None = None) -> tuple[Path, dict]:
+    """Process video and collect detection statistics.
+    
+    Returns: (processed_video_path, stats_dict) where stats_dict contains
+    counts and average confidence for each class detected.
+    """
     PROCESSED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
     capture = cv2.VideoCapture(str(video_path))
@@ -84,6 +89,14 @@ def process_video(video_path: Path, model: YOLO | None = None) -> Path:
         except Exception:
             model_names = {}
 
+    # Initialize stats for tracking detections
+    stats = {
+        "player_count": 0,
+        "ball_count": 0,
+        "player_confidences": [],
+        "ball_confidences": [],
+    }
+
     frame_index = 0
     progress = st.progress(0, text="Processing video frames...")
 
@@ -113,6 +126,14 @@ def process_video(video_path: Path, model: YOLO | None = None) -> Path:
                         class_name = model_names.get(int(cls_id), str(cls_id))
                         if class_name not in ("person", "sports ball"):
                             continue
+
+                        # Update statistics
+                        if class_name == "person":
+                            stats["player_count"] += 1
+                            stats["player_confidences"].append(float(conf))
+                        elif class_name == "sports ball":
+                            stats["ball_count"] += 1
+                            stats["ball_confidences"].append(float(conf))
 
                         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
                         color = (0, 255, 0) if class_name == "person" else (0, 0, 255)
@@ -146,8 +167,20 @@ def process_video(video_path: Path, model: YOLO | None = None) -> Path:
 
     st.write(f"Processed file size: {output_path.stat().st_size} bytes")
 
+    # Calculate average confidences
+    stats["player_avg_confidence"] = (
+        sum(stats["player_confidences"]) / len(stats["player_confidences"])
+        if stats["player_confidences"]
+        else 0.0
+    )
+    stats["ball_avg_confidence"] = (
+        sum(stats["ball_confidences"]) / len(stats["ball_confidences"])
+        if stats["ball_confidences"]
+        else 0.0
+    )
+
     browser_video_path = convert_to_browser_mp4(output_path)
-    return browser_video_path
+    return browser_video_path, stats
 
 st.set_page_config(page_title="SoccerVision", layout="wide")
 
@@ -169,7 +202,7 @@ if uploaded_file is not None:
         except Exception:
             model = None
 
-    processed_video_path = process_video(local_video_path, model)
+    processed_video_path, detection_stats = process_video(local_video_path, model)
 
     left_column, right_column = st.columns(2)
 
@@ -185,3 +218,31 @@ if uploaded_file is not None:
         st.video(str(processed_video_path))
 
     st.caption(f"Saved upload to {local_video_path} and processed output to {processed_video_path}.")
+
+    # Display detection statistics dashboard
+    st.subheader("Detection Summary")
+    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+
+    with stat_col1:
+        st.metric("Total Players Detected", detection_stats["player_count"])
+
+    with stat_col2:
+        st.metric("Total Balls Detected", detection_stats["ball_count"])
+
+    with stat_col3:
+        avg_player_conf = detection_stats["player_avg_confidence"]
+        st.metric("Avg Player Confidence", f"{avg_player_conf:.3f}")
+
+    with stat_col4:
+        avg_ball_conf = detection_stats["ball_avg_confidence"]
+        st.metric("Avg Ball Confidence", f"{avg_ball_conf:.3f}")
+
+    # Display detailed stats
+    st.subheader("Detailed Statistics")
+    details = {
+        "Players Detected": detection_stats["player_count"],
+        "Balls Detected": detection_stats["ball_count"],
+        "Avg Player Confidence": f"{detection_stats['player_avg_confidence']:.4f}",
+        "Avg Ball Confidence": f"{detection_stats['ball_avg_confidence']:.4f}",
+    }
+    st.json(details)
